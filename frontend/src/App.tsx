@@ -120,6 +120,21 @@ function App() {
     document.body.removeChild(link)
   }
 
+  // --- Pre-load Pyodide ---
+  useEffect(() => {
+    const initPyodide = async () => {
+      try {
+        // @ts-ignore
+        const py = await loadPyodide()
+        setPyodide(py)
+        await py.loadPackage(['micropip'])
+      } catch (e) {
+        console.error("Failed to load Pyodide:", e)
+      }
+    }
+    initPyodide()
+  }, [])
+
   // --- Code Download Helper ---
   const downloadCode = (code: string, filename: string) => {
     const blob = new Blob([code], { type: 'text/plain' })
@@ -144,6 +159,7 @@ function App() {
         // @ts-ignore
         py = await loadPyodide()
         setPyodide(py)
+        await py.loadPackage(['micropip']) // Pre-load micropip
       }
       setPythonOutput('Running...\n')
       // redirect stdout
@@ -155,6 +171,55 @@ sys.stdout = StringIO()
       await py.runPythonAsync(code)
       const stdout = py.runPython("sys.stdout.getvalue()")
       setPythonOutput(stdout || '[No Output]')
+    } catch (err) {
+      setPythonOutput(`Error:\n${String(err)}`)
+    }
+  }
+
+  // --- Project Runner ---
+  const runProject = async (markdownContent: string) => {
+    setPythonOutput('Initializing Python kernel for project...\n')
+    try {
+      let py = pyodide
+      if (!py) {
+        // @ts-ignore
+        py = await loadPyodide()
+        setPyodide(py)
+        await py.loadPackage(['micropip'])
+      }
+
+      setPythonOutput('Running project...\n')
+      py.runPython(`
+import sys
+from io import StringIO
+sys.stdout = StringIO()
+      `)
+
+      // Extract all code blocks from the markdown content
+      const codeBlocks = markdownContent.match(/```(\w+)(?::([^\n]+))?\n([\s\S]*?)```/g) || []
+      let fullOutput = ''
+
+      for (const block of codeBlocks) {
+        const match = /```(\w+)(?::([^\n]+))?\n([\s\S]*?)```/.exec(block)
+        if (match) {
+          const lang = match[1]
+          const filename = match[2]
+          const code = match[3].trim()
+
+          if (lang === 'python' || (filename && filename.endsWith('.py'))) {
+            fullOutput += `\n--- Executing ${filename || 'Python Code Block'} ---\n`
+            await py.runPythonAsync(code)
+            const stdout = py.runPython("sys.stdout.getvalue()")
+            fullOutput += stdout
+            py.runPython("sys.stdout = StringIO()") // Reset stdout for next block
+          } else if (lang === 'html' || (filename && filename.endsWith('.html'))) {
+            setPreviewCode(code)
+            fullOutput += `\n--- HTML file ${filename || 'index.html'} opened in preview ---\n`
+          }
+        }
+      }
+      setPythonOutput(fullOutput || '[No Output]')
+
     } catch (err) {
       setPythonOutput(`Error:\n${String(err)}`)
     }
@@ -287,98 +352,114 @@ sys.stdout = StringIO()
           /* CHAT MODE */
           <div className="chat-container">
             {messages.map((msg, i) => (
-              <div key={i} className={`chat-bubble ${msg.role}`}>
-                <Markdown
-                  components={{
-                    code(props) {
-                      const { children, className, node, ...rest } = props
-                      // Extract ref from rest to prevent passing it to SyntaxHighlighter
-                      // @ts-ignore - ref types mismatch between Markdown and SyntaxHighlighter
-                      const { ref, ...syntaxHighlighterProps } = rest
+              <div key={i}>
+                <div className={`chat-bubble ${msg.role}`}>
+                  <Markdown
+                    components={{
+                      code(props) {
+                        const { children, className, node, ...rest } = props
+                        // Extract ref from rest to prevent passing it to SyntaxHighlighter
+                        // @ts-ignore - ref types mismatch between Markdown and SyntaxHighlighter
+                        const { ref, ...syntaxHighlighterProps } = rest
 
-                      const match = /language-(\w+)(?::(.+))?/.exec(className || '')
-                      // Logic: if language string has a colon (e.g. language-python:game.py), capture filename
-                      let lang = match ? match[1] : ''
-                      let filename = match ? match[2] : ''
+                        const match = /language-(\w+)(?::(.+))?/.exec(className || '')
+                        // Logic: if language string has a colon (e.g. language-python:game.py), capture filename
+                        let lang = match ? match[1] : ''
+                        let filename = match ? match[2] : ''
 
-                      // Fallback: sometimes LLM writes ```python:game.py without space
-                      // so className might just be language-python:game.py
-                      if (!filename && className && className.includes(':')) {
-                        const parts = className.replace('language-', '').split(':')
-                        lang = parts[0]
-                        filename = parts[1]
-                      }
+                        // Fallback: sometimes LLM writes ```python:game.py without space
+                        // so className might just be language-python:game.py
+                        if (!filename && className && className.includes(':')) {
+                          const parts = className.replace('language-', '').split(':')
+                          lang = parts[0]
+                          filename = parts[1]
+                        }
 
-                      return match || filename ? (
-                        <div style={{ margin: '1rem 0' }}>
-                          {filename && (
-                            <div style={{
-                              background: '#333', padding: '0.5rem 1rem', borderTopLeftRadius: '8px',
-                              borderTopRightRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                            }}>
-                              <span style={{ fontSize: '0.8rem', color: '#ccc', fontFamily: 'monospace' }}>📄 {filename}</span>
-                              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                {/* Web Preview */}
-                                {(lang === 'html' || filename.endsWith('.html')) && (
+                        return match || filename ? (
+                          <div style={{ margin: '1rem 0' }}>
+                            {filename && (
+                              <div style={{
+                                background: '#333', padding: '0.5rem 1rem', borderTopLeftRadius: '8px',
+                                borderTopRightRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                              }}>
+                                <span style={{ fontSize: '0.8rem', color: '#ccc', fontFamily: 'monospace' }}>📄 {filename}</span>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                  {/* Web Preview */}
+                                  {(lang === 'html' || filename.endsWith('.html')) && (
+                                    <button
+                                      onClick={() => setPreviewCode(String(children))}
+                                      style={{
+                                        background: '#3b82f6', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                        fontSize: '0.75rem', padding: '2px 8px', color: '#fff', fontWeight: 'bold'
+                                      }}
+                                    >
+                                      ▶ Preview
+                                    </button>
+                                  )}
+                                  {/* Python Runner */}
+                                  {(lang === 'python' || filename.endsWith('.py')) && (
+                                    <button
+                                      onClick={() => runPython(String(children))}
+                                      style={{
+                                        background: '#eab308', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                        fontSize: '0.75rem', padding: '2px 8px', color: '#000', fontWeight: 'bold'
+                                      }}
+                                    >
+                                      ▶ Run
+                                    </button>
+                                  )}
                                   <button
-                                    onClick={() => setPreviewCode(String(children))}
+                                    onClick={() => downloadCode(String(children).replace(/\n$/, ''), filename)}
                                     style={{
-                                      background: '#3b82f6', border: 'none', borderRadius: '4px', cursor: 'pointer',
-                                      fontSize: '0.75rem', padding: '2px 8px', color: '#fff', fontWeight: 'bold'
-                                    }}
-                                  >
-                                    ▶ Preview
-                                  </button>
-                                )}
-                                {/* Python Runner */}
-                                {(lang === 'python' || filename.endsWith('.py')) && (
-                                  <button
-                                    onClick={() => runPython(String(children))}
-                                    style={{
-                                      background: '#eab308', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                      background: '#4ade80', border: 'none', borderRadius: '4px', cursor: 'pointer',
                                       fontSize: '0.75rem', padding: '2px 8px', color: '#000', fontWeight: 'bold'
                                     }}
                                   >
-                                    ▶ Run
+                                    ⬇ Download
                                   </button>
-                                )}
-                                <button
-                                  onClick={() => downloadCode(String(children).replace(/\n$/, ''), filename)}
-                                  style={{
-                                    background: '#4ade80', border: 'none', borderRadius: '4px', cursor: 'pointer',
-                                    fontSize: '0.75rem', padding: '2px 8px', color: '#000', fontWeight: 'bold'
-                                  }}
-                                >
-                                  ⬇ Download
-                                </button>
+                                </div>
                               </div>
-                            </div>
-                          )}
-                          <SyntaxHighlighter
-                            PreTag="div"
-                            children={String(children).replace(/\n$/, '')}
-                            language={lang}
-                            style={vscDarkPlus}
-                            customStyle={{
-                              margin: 0,
-                              borderTopLeftRadius: filename ? 0 : '8px',
-                              borderTopRightRadius: filename ? 0 : '8px',
-                              borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px'
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <code {...rest} className={className}>
-                          {children}
-                        </code>
-                      )
-                    }
-                  }}
-                >
-                  {msg.content}
-                </Markdown>
+                            )}
+                            <SyntaxHighlighter
+                              PreTag="div"
+                              children={String(children).replace(/\n$/, '')}
+                              language={lang}
+                              style={vscDarkPlus}
+                              customStyle={{
+                                margin: 0,
+                                borderTopLeftRadius: filename ? 0 : '8px',
+                                borderTopRightRadius: filename ? 0 : '8px',
+                                borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px'
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <code {...rest} className={className}>
+                            {children}
+                          </code>
+                        )
+                      }
+                    }}
+                  >
+                    {msg.content}
+                  </Markdown>
+                </div>
+
+                {/* Project Runner Button (Only for AI messages with code) */}
+                {i === messages.length - 1 && msg.role === 'ai' && msg.content.includes('```') && (
+                  <div style={{ padding: '0 1rem 1rem 1rem', display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => runProject(msg.content)}
+                      className="neon-btn"
+                      style={{ fontSize: '0.8rem', padding: '0.5rem 1rem', background: '#ec4899', width: 'auto' }}
+                    >
+                      ▶ Run Full Project
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
+
             {loading && (
               <div className="chat-bubble ai" style={{ display: 'flex', gap: '10px' }}>
                 <div className="status-dot loading" style={{ animation: 'pulse 1s infinite' }}></div>
