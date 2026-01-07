@@ -23,6 +23,7 @@ function App() {
   // Image State
   const [image, setImage] = useState<string | null>(null)
   const [history, setHistory] = useState<string[]>([])
+  const [previewCode, setPreviewCode] = useState<string | null>(null)
 
   // Chat State
   const [messages, setMessages] = useState<Message[]>([
@@ -287,15 +288,28 @@ function App() {
                               borderTopRightRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                             }}>
                               <span style={{ fontSize: '0.8rem', color: '#ccc', fontFamily: 'monospace' }}>📄 {filename}</span>
-                              <button
-                                onClick={() => downloadCode(String(children).replace(/\n$/, ''), filename)}
-                                style={{
-                                  background: '#4ade80', border: 'none', borderRadius: '4px', cursor: 'pointer',
-                                  fontSize: '0.75rem', padding: '2px 8px', color: '#000', fontWeight: 'bold'
-                                }}
-                              >
-                                ⬇ Download
-                              </button>
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                {(lang === 'html' || filename.endsWith('.html')) && (
+                                  <button
+                                    onClick={() => setPreviewCode(String(children))}
+                                    style={{
+                                      background: '#3b82f6', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                      fontSize: '0.75rem', padding: '2px 8px', color: '#fff', fontWeight: 'bold'
+                                    }}
+                                  >
+                                    ▶ Preview
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => downloadCode(String(children).replace(/\n$/, ''), filename)}
+                                  style={{
+                                    background: '#4ade80', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                    fontSize: '0.75rem', padding: '2px 8px', color: '#000', fontWeight: 'bold'
+                                  }}
+                                >
+                                  ⬇ Download
+                                </button>
+                              </div>
                             </div>
                           )}
                           <SyntaxHighlighter
@@ -349,6 +363,33 @@ function App() {
             <h2 style={{ marginTop: 0 }}>ES Ai Developer API</h2>
             <button onClick={() => setShowApi(false)}>Close</button>
           </div>
+        </div>
+      )}
+
+      {/* Preview Modal */}
+      {previewCode && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 200,
+          display: 'flex', flexDirection: 'column'
+        }}>
+          <div style={{
+            padding: '1rem', background: '#111', borderBottom: '1px solid #333',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+          }}>
+            <h3 style={{ margin: 0, color: '#fff' }}>Live Preview</h3>
+            <button
+              onClick={() => setPreviewCode(null)}
+              style={{ background: '#ef4444', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer' }}
+            >
+              Close Preview
+            </button>
+          </div>
+          <iframe
+            style={{ flex: 1, border: 'none', background: '#fff' }}
+            srcDoc={previewCode}
+            sandbox="allow-scripts"
+            title="Preview"
+          />
         </div>
       )}
     </div>
