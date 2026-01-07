@@ -178,7 +178,7 @@ sys.stdout = StringIO()
 
   // --- Project Runner ---
   const runProject = async (markdownContent: string) => {
-    setPythonOutput('Initializing Python kernel for project...\n')
+    setPythonOutput('Initializing Project Environment...\n')
     try {
       let py = pyodide
       if (!py) {
@@ -189,39 +189,101 @@ sys.stdout = StringIO()
       }
 
       setPythonOutput('Running project...\n')
+
+      // Capture both stdout and stderr
       py.runPython(`
 import sys
 from io import StringIO
 sys.stdout = StringIO()
+sys.stderr = StringIO()
       `)
 
-      // Extract all code blocks from the markdown content
-      const codeBlocks = markdownContent.match(/```(\w+)(?::([^\n]+))?\n([\s\S]*?)```/g) || []
-      let fullOutput = ''
+      // More robust regex: matches ```lang:filename, ```lang, or just ```
+      // Group 1: lang, Group 2: filename (optional), Group 3: code
+      const regex = /```(\w+)(?::([^\n]+))?\n([\s\S]*?)```/g
 
-      for (const block of codeBlocks) {
-        const match = /```(\w+)(?::([^\n]+))?\n([\s\S]*?)```/.exec(block)
-        if (match) {
-          const lang = match[1]
-          const filename = match[2]
-          const code = match[3].trim()
+      let match
+      const files: { lang: string, filename: string, code: string }[] = []
 
-          if (lang === 'python' || (filename && filename.endsWith('.py'))) {
-            fullOutput += `\n--- Executing ${filename || 'Python Code Block'} ---\n`
-            await py.runPythonAsync(code)
-            const stdout = py.runPython("sys.stdout.getvalue()")
-            fullOutput += stdout
-            py.runPython("sys.stdout = StringIO()") // Reset stdout for next block
-          } else if (lang === 'html' || (filename && filename.endsWith('.html'))) {
-            setPreviewCode(code)
-            fullOutput += `\n--- HTML file ${filename || 'index.html'} opened in preview ---\n`
-          }
+      // Reset regex index
+      regex.lastIndex = 0
+
+      while ((match = regex.exec(markdownContent)) !== null) {
+        files.push({
+          lang: match[1]?.trim() || '',
+          filename: match[2]?.trim() || '',
+          code: match[3]?.trim() || ''
+        })
+      }
+
+      if (files.length === 0) {
+        setPythonOutput(prev => prev + '[ERROR] No code blocks found to run.\n')
+        return
+      }
+
+      const isWeb = files.some(f => ['html', 'css', 'javascript', 'js'].includes(f.lang) || f.filename?.endsWith('.html'))
+      const isPython = files.some(f => f.lang === 'python' || f.filename?.endsWith('.py'))
+
+      if (isWeb) {
+        let html = files.find(f => f.lang === 'html' || f.filename?.endsWith('.html'))?.code || ''
+        const css = files.filter(f => f.lang === 'css' || f.filename?.endsWith('.css')).map(f => f.code).join('\n')
+        const js = files.filter(f => ['javascript', 'js'].includes(f.lang) || f.filename?.endsWith('.js')).map(f => f.code).join('\n')
+
+        // Basic auto-construction if only JS/CSS or partial HTML
+        if (!html && (css || js)) {
+          html = '<html><head></head><body><h1>Generated Output</h1><div id="app"></div></body></html>'
+        }
+
+        if (css) html = html.replace('</head>', `<style>${css}</style></head>`) || html + `<style>${css}</style>`
+        if (js) html = html.replace('</body>', `<script>${js}</script></body>`) || html + `<script>${js}</script>`
+
+        if (html) {
+          setPreviewCode(html)
+          setPythonOutput(prev => prev + `[SUCCESS] Launched Web Preview for ${files.length} files.\n`)
+        } else {
+          setPythonOutput(prev => prev + '[ERROR] Could not construct a valid HTML file from the code blocks.\n')
         }
       }
-      setPythonOutput(fullOutput || '[No Output]')
+      else if (isPython) {
+        let fullOutput = ''
+
+        // 1. Write Files
+        for (const file of files) {
+          if (file.filename) {
+            try {
+              py.FS.writeFile(file.filename, file.code)
+              fullOutput += `[FS] Wrote ${file.filename}\n`
+            } catch (e) {
+              fullOutput += `[FS Warning] Failed to write ${file.filename}: ${e}\n`
+            }
+          }
+        }
+
+        // 2. Run Main or First Python Block
+        const mainFile = files.find(f => f.filename === 'main.py') || files.find(f => f.lang === 'python')
+
+        if (mainFile) {
+          fullOutput += `--- Executing ${mainFile.filename || 'Python Script'} ---\n`
+          try {
+            await py.runPythonAsync(mainFile.code)
+          } catch (pyError) {
+            fullOutput += `\n[RUNTIME ERROR]: ${String(pyError)}\n`
+          }
+        } else {
+          fullOutput += '[ERROR] No Python code block found to execute.\n'
+        }
+
+        // 3. Collect Output
+        const stdout = py.runPython("sys.stdout.getvalue()")
+        const stderr = py.runPython("sys.stderr.getvalue()")
+
+        setPythonOutput(prev => prev + fullOutput + '\n=== STDOUT ===\n' + stdout + '\n=== STDERR ===\n' + stderr)
+      } else {
+        setPythonOutput(prev => prev + '[INFO] detected languages: ' + files.map(f => f.lang).join(', ') + '\nNo runnable Web or Python content identified.')
+      }
 
     } catch (err) {
-      setPythonOutput(`Error:\n${String(err)}`)
+      setPythonOutput(`[SYSTEM ERROR]:\n${String(err)}`)
     }
   }
 
