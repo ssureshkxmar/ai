@@ -198,22 +198,38 @@ sys.stdout = StringIO()
 sys.stderr = StringIO()
       `)
 
-      // More robust regex: matches ```lang:filename, ```lang, or just ```
-      // Group 1: lang, Group 2: filename (optional), Group 3: code
-      const regex = /```(\w+)(?::([^\n]+))?\n([\s\S]*?)```/g
+      // 1. More robust generic regex
+      // Matches: ```lang:filename ... ``` OR ```lang ... ``` OR ``` ... ```
+      const regex = /```(\w+)?(?::([^\n]+))?\n([\s\S]*?)```/g
 
       let match
       const files: { lang: string, filename: string, code: string }[] = []
 
-      // Reset regex index
       regex.lastIndex = 0
-
       while ((match = regex.exec(markdownContent)) !== null) {
-        files.push({
-          lang: match[1]?.trim() || '',
-          filename: match[2]?.trim() || '',
-          code: match[3]?.trim() || ''
-        })
+        let lang = match[1]?.trim() || ''
+        let filename = match[2]?.trim() || ''
+        let code = match[3]?.trim() || ''
+
+        // Smart Detection if metadata missing
+        if (!lang && !filename) {
+          // Try to guess from content
+          if (code.includes('DOCTYPE html') || code.includes('<html>')) lang = 'html'
+          else if (code.includes('import ') || code.includes('def ')) lang = 'python'
+          else if (code.includes('console.log') || code.includes('function ')) lang = 'javascript'
+        }
+
+        // Auto-assign filename if missing
+        if (!filename) {
+          if (lang === 'html') filename = 'index.html'
+          else if (lang === 'css') filename = 'style.css'
+          else if (lang === 'javascript' || lang === 'js') filename = 'script.js'
+          else if (lang === 'python') filename = `script_${files.length}.py`
+        }
+
+        if (code) {
+          files.push({ lang, filename, code })
+        }
       }
 
       if (files.length === 0) {
