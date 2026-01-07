@@ -223,25 +223,36 @@ function App() {
 
         {mode === 'image' ? (
           /* IMAGE MODE */
-          <div className={`image-frame ${image ? 'has-image' : ''}`}>
-            {loading && (
-              <div style={{ position: 'absolute', zIndex: 10 }}>
-                <span className="loader"></span>
-              </div>
-            )}
+          <>
+            <div className={`image-frame ${image ? 'has-image' : ''}`}>
+              {loading && (
+                <div style={{ position: 'absolute', zIndex: 10 }}>
+                  <span className="loader"></span>
+                </div>
+              )}
 
-            {image ? (
-              <>
-                <img src={image} alt="Generated" className="generated-img" style={{ opacity: loading ? 0.5 : 1 }} />
-                <button className="download-btn" onClick={downloadImage}>⬇ Download</button>
-              </>
-            ) : (
-              <div className="placeholder-text" style={{ textAlign: 'center', color: 'var(--text-muted)', opacity: 0.5 }}>
-                <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>ES Visual Engine</h2>
-                <p>Enter a prompt to create art</p>
+              {image ? (
+                <>
+                  <img src={image} alt="Generated" className="generated-img" style={{ opacity: loading ? 0.5 : 1 }} />
+                  <button className="download-btn" onClick={downloadImage}>⬇ Download</button>
+                </>
+              ) : (
+                <div className="placeholder-text" style={{ textAlign: 'center', color: 'var(--text-muted)', opacity: 0.5 }}>
+                  <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>ES Visual Engine</h2>
+                  <p>Enter a prompt to create art</p>
+                </div>
+              )}
+            </div>
+
+            {/* History Strip */}
+            {history.length > 0 && (
+              <div className="history-bar">
+                {history.map((img, i) => (
+                  <img key={i} src={img} className="history-thumb" onClick={() => setImage(img)} alt={`History ${i}`} />
+                ))}
               </div>
             )}
-          </div>
+          </>
         ) : (
           /* CHAT MODE */
           <div className="chat-container">
@@ -288,7 +299,6 @@ function App() {
                             </div>
                           )}
                           <SyntaxHighlighter
-                            {...syntaxHighlighterProps}
                             PreTag="div"
                             children={String(children).replace(/\n$/, '')}
                             language={lang}
