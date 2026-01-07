@@ -24,6 +24,8 @@ function App() {
   const [image, setImage] = useState<string | null>(null)
   const [history, setHistory] = useState<string[]>([])
   const [previewCode, setPreviewCode] = useState<string | null>(null)
+  const [pythonOutput, setPythonOutput] = useState<string | null>(null)
+  const [pyodide, setPyodide] = useState<any>(null)
 
   // Chat State
   const [messages, setMessages] = useState<Message[]>([
@@ -129,6 +131,33 @@ function App() {
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
+  }
+
+
+
+  // --- Python Runner ---
+  const runPython = async (code: string) => {
+    setPythonOutput('Initializing Python kernel...\n')
+    try {
+      let py = pyodide
+      if (!py) {
+        // @ts-ignore
+        py = await loadPyodide()
+        setPyodide(py)
+      }
+      setPythonOutput('Running...\n')
+      // redirect stdout
+      py.runPython(`
+import sys
+from io import StringIO
+sys.stdout = StringIO()
+      `)
+      await py.runPythonAsync(code)
+      const stdout = py.runPython("sys.stdout.getvalue()")
+      setPythonOutput(stdout || '[No Output]')
+    } catch (err) {
+      setPythonOutput(`Error:\n${String(err)}`)
+    }
   }
 
   return (
@@ -289,6 +318,7 @@ function App() {
                             }}>
                               <span style={{ fontSize: '0.8rem', color: '#ccc', fontFamily: 'monospace' }}>📄 {filename}</span>
                               <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                {/* Web Preview */}
                                 {(lang === 'html' || filename.endsWith('.html')) && (
                                   <button
                                     onClick={() => setPreviewCode(String(children))}
@@ -298,6 +328,18 @@ function App() {
                                     }}
                                   >
                                     ▶ Preview
+                                  </button>
+                                )}
+                                {/* Python Runner */}
+                                {(lang === 'python' || filename.endsWith('.py')) && (
+                                  <button
+                                    onClick={() => runPython(String(children))}
+                                    style={{
+                                      background: '#eab308', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                      fontSize: '0.75rem', padding: '2px 8px', color: '#000', fontWeight: 'bold'
+                                    }}
+                                  >
+                                    ▶ Run
                                   </button>
                                 )}
                                 <button
@@ -390,6 +432,34 @@ function App() {
             sandbox="allow-scripts"
             title="Preview"
           />
+        </div>
+      )}
+
+      {/* Terminal Modal */}
+      {pythonOutput !== null && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 200,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }} onClick={() => setPythonOutput(null)}>
+          <div style={{
+            background: '#0d1117', border: '1px solid #30363d', borderRadius: '8px',
+            width: '80%', maxWidth: '800px', height: '600px', display: 'flex', flexDirection: 'column',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.5)'
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{
+              padding: '0.75rem', borderBottom: '1px solid #30363d', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              background: '#161b22', borderTopLeftRadius: '8px', borderTopRightRadius: '8px'
+            }}>
+              <span style={{ color: '#c9d1d9', fontFamily: 'monospace', fontWeight: 'bold' }}>💻 Python Terminal</span>
+              <button onClick={() => setPythonOutput(null)} style={{ background: '#da3633', border: 'none', borderRadius: '4px', color: '#fff', padding: '4px 12px', cursor: 'pointer' }}>Close</button>
+            </div>
+            <pre style={{
+              flex: 1, padding: '1rem', margin: 0, overflow: 'auto', color: '#3fb950', fontFamily: 'monospace',
+              whiteSpace: 'pre-wrap', fontSize: '0.9rem'
+            }}>
+              {pythonOutput}
+            </pre>
+          </div>
         </div>
       )}
     </div>
