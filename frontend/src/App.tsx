@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Markdown from 'react-markdown'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import './index.css'
 
 // Simple type for chat messages
@@ -24,7 +26,7 @@ function App() {
 
   // Chat State
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'ai', content: 'Hello, I am **ES Ai**. I can generate visuals, write code, and verify facts from the web. How can I help you today?' }
+    { role: 'ai', content: 'Hello, I am **ES Ai**. I can generate visuals, write code, and verify facts. \n\nTry asking: *"Write a python snake game"*' }
   ])
 
   // Refs for scrolling
@@ -84,10 +86,9 @@ function App() {
   }
 
   const sendChatMessage = async () => {
-    // Add user message immediately
     const userMsg = prompt
     setMessages(prev => [...prev, { role: 'user', content: userMsg }])
-    setPrompt('') // Clear input specifically for chat flow
+    setPrompt('')
 
     try {
       const response = await fetch(`${API_URL}/chat`, {
@@ -114,6 +115,19 @@ function App() {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  // --- Code Download Helper ---
+  const downloadCode = (code: string, filename: string) => {
+    const blob = new Blob([code], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -151,8 +165,8 @@ function App() {
           <textarea
             className="cyber-input"
             placeholder={mode === 'image'
-              ? "A futuristic city with flying cars, neon lights..."
-              : "Write a python script to... / Who is the CEO of Google?"}
+              ? "A futuristic city with flying cars..."
+              : "Generate a python snake game..."}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => {
@@ -233,7 +247,66 @@ function App() {
           <div className="chat-container">
             {messages.map((msg, i) => (
               <div key={i} className={`chat-bubble ${msg.role}`}>
-                <Markdown>{msg.content}</Markdown>
+                <Markdown
+                  components={{
+                    code(props) {
+                      const { children, className, node, ...rest } = props
+                      const match = /language-(\w+)(?::(.+))?/.exec(className || '')
+                      // Logic: if language string has a colon (e.g. language-python:game.py), capture filename
+                      let lang = match ? match[1] : ''
+                      let filename = match ? match[2] : ''
+
+                      // Fallback: sometimes LLM writes ```python:game.py without space
+                      // so className might just be language-python:game.py
+                      if (!filename && className && className.includes(':')) {
+                        const parts = className.replace('language-', '').split(':')
+                        lang = parts[0]
+                        filename = parts[1]
+                      }
+
+                      return match || filename ? (
+                        <div style={{ margin: '1rem 0' }}>
+                          {filename && (
+                            <div style={{
+                              background: '#333', padding: '0.5rem 1rem', borderTopLeftRadius: '8px',
+                              borderTopRightRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                            }}>
+                              <span style={{ fontSize: '0.8rem', color: '#ccc', fontFamily: 'monospace' }}>📄 {filename}</span>
+                              <button
+                                onClick={() => downloadCode(String(children).replace(/\n$/, ''), filename)}
+                                style={{
+                                  background: '#4ade80', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                  fontSize: '0.75rem', padding: '2px 8px', color: '#000', fontWeight: 'bold'
+                                }}
+                              >
+                                ⬇ Download
+                              </button>
+                            </div>
+                          )}
+                          <SyntaxHighlighter
+                            {...rest}
+                            PreTag="div"
+                            children={String(children).replace(/\n$/, '')}
+                            language={lang}
+                            style={vscDarkPlus}
+                            customStyle={{
+                              margin: 0,
+                              borderTopLeftRadius: filename ? 0 : '8px',
+                              borderTopRightRadius: filename ? 0 : '8px',
+                              borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px'
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <code {...rest} className={className}>
+                          {children}
+                        </code>
+                      )
+                    }
+                  }}
+                >
+                  {msg.content}
+                </Markdown>
               </div>
             ))}
             {loading && (
@@ -247,48 +320,20 @@ function App() {
           </div>
         )}
 
-        {/* History Strip (Only in Image Mode) */}
-        {mode === 'image' && history.length > 0 && (
-          <div className="history-bar">
-            {history.map((img, i) => (
-              <img key={i} src={img} className="history-thumb" onClick={() => setImage(img)} alt={`History ${i}`} />
-            ))}
-          </div>
-        )}
-
       </main>
 
-      {/* API Modal (Same as before) */}
       {showApi && (
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
           backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100
         }} onClick={() => setShowApi(false)}>
+          {/* API Modal Content (Same as before) */}
           <div style={{
             background: '#111', border: '1px solid var(--border)', padding: '2rem', borderRadius: '16px',
             maxWidth: '600px', width: '90%', position: 'relative'
           }} onClick={e => e.stopPropagation()}>
             <h2 style={{ marginTop: 0 }}>ES Ai Developer API</h2>
-            <p style={{ color: '#aaa' }}>Endpoints for your applications:</p>
-
-            <div style={{ background: '#222', padding: '1rem', borderRadius: '8px', overflowX: 'auto', fontFamily: 'monospace', fontSize: '0.9rem', marginBottom: '1rem' }}>
-              <span style={{ color: '#888' }}># 1. Generate Image</span><br />
-              POST {API_URL}/generate<br />
-              {`{ "prompt": "...", "steps": 4 }`}
-            </div>
-
-            <div style={{ background: '#222', padding: '1rem', borderRadius: '8px', overflowX: 'auto', fontFamily: 'monospace', fontSize: '0.9rem' }}>
-              <span style={{ color: '#888' }}># 2. Chat / Code / Search</span><br />
-              POST {API_URL}/chat<br />
-              {`{ "message": "Write python code...", "token": "OPTIONAL_HF_TOKEN" }`}
-            </div>
-
-            <button onClick={() => setShowApi(false)} style={{
-              marginTop: '1.5rem', background: 'var(--primary)', border: 'none', color: 'white',
-              padding: '0.5rem 1.5rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600
-            }}>
-              Close
-            </button>
+            <button onClick={() => setShowApi(false)}>Close</button>
           </div>
         </div>
       )}
