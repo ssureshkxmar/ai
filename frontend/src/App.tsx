@@ -251,6 +251,10 @@ function App() {
                   components={{
                     code(props) {
                       const { children, className, node, ...rest } = props
+                      // Extract ref from rest to prevent passing it to SyntaxHighlighter
+                      // @ts-ignore - ref types mismatch between Markdown and SyntaxHighlighter
+                      const { ref, ...syntaxHighlighterProps } = rest
+
                       const match = /language-(\w+)(?::(.+))?/.exec(className || '')
                       // Logic: if language string has a colon (e.g. language-python:game.py), capture filename
                       let lang = match ? match[1] : ''
@@ -284,7 +288,7 @@ function App() {
                             </div>
                           )}
                           <SyntaxHighlighter
-                            {...rest}
+                            {...syntaxHighlighterProps}
                             PreTag="div"
                             children={String(children).replace(/\n$/, '')}
                             language={lang}
